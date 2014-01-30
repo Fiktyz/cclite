@@ -1,0 +1,30 @@
+
+if not turtle then
+	error( "Cannot load turtle API on computer" )
+end
+native = turtle.native or turtle
+
+-- Add standard commands
+local turtle = {}
+for k,v in pairs( native ) do
+	if type( k ) == "string" and type( v ) == "function" then
+        turtle[k] = v
+	end
+end
+
+-- Add peripheral commands
+if peripheral.getType( "left" ) == "workbench" then
+	turtle.craft = function( ... )
+		return peripheral.call( "left", "craft", ... )
+	end
+elseif peripheral.getType( "right" ) == "workbench" then
+	turtle.craft = function( ... )
+		return peripheral.call( "right", "craft", ... )
+	end
+end
+
+-- Put commands into environment table
+local env = getfenv()
+for k,v in pairs( turtle ) do
+	env[k] = v
+end

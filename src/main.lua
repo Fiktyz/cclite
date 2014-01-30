@@ -303,6 +303,10 @@ function love.keypressed(key, isrepeat)
 
 	if love.keyboard.isDown("ctrl") and key == "v" then
 		local cliptext = love.system.getClipboardText()
+
+		table.insert(Emulator.eventQueue, { "paste", cliptext })
+		--[[
+		local cliptext = love.system.getClipboardText()
 		cliptext = cliptext:gsub("\r\n","\n"):sub(1,127)
 		local nloc = cliptext:find("\n") or -1
 		if nloc > 0 then
@@ -311,6 +315,7 @@ function love.keypressed(key, isrepeat)
 		for i = 1,#cliptext do
 			love.textinput(cliptext:sub(i,i))
 		end
+		]]--
 	elseif isrepeat and love.keyboard.isDown("ctrl") and (key == "t" or key == "s" or key == "r") then
 	elseif keys[key] then
 		table.insert(Emulator.eventQueue, {"key", keys[key]})

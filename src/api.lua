@@ -470,6 +470,9 @@ function api.os.startTimer(nTimeout)
 	Emulator.actions.timers[Emulator.actions.lastTimer] = math.floor(love.timer.getTime()*20)/20 + nTimeout
 	return Emulator.actions.lastTimer
 end
+function api.os.cancelTimer(id)
+	Emulator.actions.timers[id] = nil
+end
 function api.os.setAlarm(nTime)
 	if type(nTime) ~= "number" then error("Expected number",2) end
 	if nTime < 0 or nTime > 24 then
@@ -482,6 +485,9 @@ function api.os.setAlarm(nTime)
 	Emulator.actions.lastAlarm = Emulator.actions.lastAlarm + 1
 	Emulator.actions.alarms[Emulator.actions.lastAlarm] = alarm
 	return Emulator.actions.lastAlarm
+end
+function api.os.cancelAlarm(id)
+	Emulator.actions.alarms[id] = nil
 end
 function api.os.shutdown()
 	Emulator:stop(false)
@@ -522,6 +528,34 @@ function api.peripheral.getNames()
 end
 
 api.fs = {}
+local function recurse_spec(results, path, spec)
+	local segment = spec:match('([^/]*)'):gsub('/', '')
+	local pattern = '^' .. segment:gsub('[*]', '.+'):gsub('?', '.') .. '$'
+
+	if api.fs.isDir(path) then
+		for _, file in ipairs(api.fs.list(path)) do
+			if file:match(pattern) then
+				local f = api.fs.combine(path, file)
+
+				if api.fs.isDir(f) then
+					recurse_spec(results, f, spec:sub(#segment + 2))
+				elseif spec == segment then
+					table.insert(results, f)
+				end
+			end
+		end
+	end
+end
+
+
+function api.fs.find(spec)
+	local results = {}
+
+	recurse_spec(results, '', spec)
+	
+	return results
+end
+
 function api.fs.combine(basePath, localPath)
 	if type(basePath) ~= "string" or type(localPath) ~= "string" then
 		error("Expected string, string",2)
@@ -964,7 +998,7 @@ function api.init() -- Called after this file is loaded! Important. Else api.x i
 
 		-- CC apis (BIOS completes api.)
 		term = {
-			native = {
+			native = function() return {
 				clear = api.term.clear,
 				clearLine = api.term.clearLine,
 				getSize = api.term.getSize,
@@ -979,7 +1013,7 @@ function api.init() -- Called after this file is loaded! Important. Else api.x i
 				write = api.term.write,
 				isColor = api.term.isColor,
 				isColour = api.term.isColor,
-			},
+			} end,
 			clear = api.term.clear,
 			clearLine = api.term.clearLine,
 			getSize = api.term.getSize,
@@ -1010,6 +1044,7 @@ function api.init() -- Called after this file is loaded! Important. Else api.x i
 			copy = api.fs.copy,
 			delete = api.fs.delete,
 			combine = api.fs.combine,
+			find = api.fs.find,
 		},
 		os = {
 			clock = api.os.clock,
@@ -1020,7 +1055,9 @@ function api.init() -- Called after this file is loaded! Important. Else api.x i
 			computerLabel = api.os.getComputerLabel,
 			queueEvent = api.os.queueEvent,
 			startTimer = api.os.startTimer,
+			cancelTimer = api.os.cancelTimer,
 			setAlarm = api.os.setAlarm,
+			cancelAlarm = api.os.cancelAlarm,
 			time = api.os.time,
 			day = api.os.day,
 			shutdown = api.os.shutdown,

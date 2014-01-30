@@ -90,7 +90,6 @@ function string.gmatch( _s, _pattern )
 		return string.match( _s, _pattern, nFirst )
 	end
 end
-]]
 
 local nativesetmetatable = setmetatable
 function setmetatable( _o, _t )
@@ -106,21 +105,33 @@ function setmetatable( _o, _t )
 	end
 	return nativesetmetatable( _o, _t )
 end
+]]
+
+-- Install fix for luaj's broken string.sub/string.find
+local nativestringfind = string.find
+local nativestringsub = string.sub
+function string.sub( ... )
+    local r = nativestringsub( ... )
+    if r then
+        return r .. ""
+    end
+    return nil
+end
+function string.find( s, ... )
+    return nativestringfind( s .. "", ... );
+end
 
 -- Install lua parts of the os api
 function os.version()
-	if turtle then
-		return "TurtleOS 1.5"
-	end
-	return "CraftOS 1.5"
+	return "CraftOS 1.6 (Beta)"
 end
 
-function os.pullEventRaw( _sFilter )
-	return coroutine.yield( _sFilter )
+function os.pullEventRaw( sFilter )
+	return coroutine.yield( sFilter )
 end
 
-function os.pullEvent( _sFilter )
-	local eventData = { os.pullEventRaw( _sFilter ) }
+function os.pullEvent( sFilter )
+	local eventData = { os.pullEventRaw( sFilter ) }
 	if eventData[1] == "terminate" then
 		error( "Terminated", 0 )
 	end
@@ -128,8 +139,8 @@ function os.pullEvent( _sFilter )
 end
 
 -- Install globals
-function sleep( _nTime )
-    local timer = os.startTimer( _nTime )
+function sleep( nTime )
+    local timer = os.startTimer( nTime )
 	repeat
 		local sEvent, param = os.pullEvent( "timer" )
 	until param == timer
@@ -216,7 +227,7 @@ function read( _sReplaceChar, _tHistory )
 	term.setCursorBlink( true )
 
     local sLine = ""
-	local nHistoryPos = nil
+	local nHistoryPos
 	local nPos = 0
     if _sReplaceChar then
 		_sReplaceChar = string.sub( _sReplaceChar, 1, 1 )
@@ -234,7 +245,7 @@ function read( _sReplaceChar, _tHistory )
 		term.setCursorPos( sx, sy )
 		local sReplace = _sCustomReplaceChar or _sReplaceChar
 		if sReplace then
-			term.write( string.rep(sReplace, string.len(sLine) - nScroll) )
+			term.write( string.rep( sReplace, string.len(sLine) - nScroll ) )
 		else
 			term.write( string.sub( sLine, nScroll + 1 ) )
 		end
@@ -244,9 +255,16 @@ function read( _sReplaceChar, _tHistory )
 	while true do
 		local sEvent, param = os.pullEvent()
 		if sEvent == "char" then
+            -- Typed key
 			sLine = string.sub( sLine, 1, nPos ) .. param .. string.sub( sLine, nPos + 1 )
 			nPos = nPos + 1
 			redraw()
+
+		elseif sEvent == "paste" then
+            -- Pasted text
+			sLine = string.sub( sLine, 1, nPos ) .. param .. string.sub( sLine, nPos + 1 )
+		    nPos = nPos + string.len( param )
+		    redraw()
 			
 		elseif sEvent == "key" then
 		    if param == keys.enter then
@@ -263,6 +281,7 @@ function read( _sReplaceChar, _tHistory )
 			elseif param == keys.right then
 				-- Right				
 				if nPos < string.len(sLine) then
+					redraw(" ")
 					nPos = nPos + 1
 					redraw()
 				end
@@ -270,7 +289,7 @@ function read( _sReplaceChar, _tHistory )
 			elseif param == keys.up or param == keys.down then
                 -- Up or down
 				if _tHistory then
-					redraw(" ");
+					redraw(" ")
 					if param == keys.up then
 						-- Up
 						if nHistoryPos == nil then
@@ -288,7 +307,6 @@ function read( _sReplaceChar, _tHistory )
 							nHistoryPos = nHistoryPos + 1
 						end						
 					end
-					
 					if nHistoryPos then
                     	sLine = _tHistory[nHistoryPos]
                     	nPos = string.len( sLine ) 
@@ -301,23 +319,26 @@ function read( _sReplaceChar, _tHistory )
 			elseif param == keys.backspace then
 				-- Backspace
 				if nPos > 0 then
-					redraw(" ");
+					redraw(" ")
 					sLine = string.sub( sLine, 1, nPos - 1 ) .. string.sub( sLine, nPos + 1 )
 					nPos = nPos - 1					
 					redraw()
 				end
 			elseif param == keys.home then
 				-- Home
+				redraw(" ")
 				nPos = 0
 				redraw()		
 			elseif param == keys.delete then
+                -- Delete
 				if nPos < string.len(sLine) then
-					redraw(" ");
+					redraw(" ")
 					sLine = string.sub( sLine, 1, nPos ) .. string.sub( sLine, nPos + 2 )				
 					redraw()
 				end
 			elseif param == keys["end"] then
 				-- End
+				redraw(" ")
 				nPos = string.len(sLine)
 				redraw()
 			end
@@ -366,13 +387,14 @@ function os.run( _tEnv, _sPath, ... )
         if not ok then
         	if err and err ~= "" then
 	        	printError( err )
-	        end
+            end
         	return false
         end
         return true
     end
     if err and err ~= "" then
 		printError( err )
+        printError( "bar" )
 	end
     return false
 end
@@ -425,8 +447,8 @@ function os.unloadAPI( _sName )
 	end
 end
 
-function os.sleep( _nTime )
-	sleep( _nTime )
+function os.sleep( nTime )
+	sleep( nTime )
 end
 
 local nativeShutdown = os.shutdown
@@ -467,7 +489,7 @@ if http then
 		return wrapRequest( _url, _post or "" )
 	end
 end
-			
+
 -- Load APIs
 local tApis = fs.list( "rom/apis" )
 for n,sFile in ipairs( tApis ) do
@@ -495,7 +517,12 @@ end
 local ok, err = pcall( function()
 	parallel.waitForAny( 
 		function()
-			os.run( {}, "rom/programs/shell" )
+            if term.isColour() then
+    			os.run( {}, "rom/programs/advanced/multishell" )
+            else
+                os.run( {}, "rom/programs/shell" )
+            end
+            os.run( {}, "rom/programs/shutdown" )
 		end,
 		function()
 			rednet.run()
@@ -503,14 +530,15 @@ local ok, err = pcall( function()
 end )
 
 -- If the shell errored, let the user read it.
+term.redirect( term.native() )
 if not ok then
 	printError( err )
+    pcall( function()
+        term.setCursorBlink( false )
+        print( "Press any key to continue" )
+        os.pullEvent( "key" )
+    end )
 end
 
-pcall( function()
-	term.setCursorBlink( false )
-	print( "Press any key to continue" )
-	os.pullEvent( "key" ) 
-end )
+-- End
 os.shutdown()
-
