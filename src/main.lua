@@ -1,14 +1,64 @@
--- Verify configuration
-assert(type(_conf.enableAPI_http) == "boolean", "Invalid value for _conf.enableAPI_http")
-assert(type(_conf.enableAPI_cclite) == "boolean", "Invalid value for _conf.enableAPI_cclite")
-assert(type(_conf.terminal_height) == "number", "Invalid value for _conf.terminal_height")
-assert(type(_conf.terminal_width) == "number", "Invalid value for _conf.terminal_width")
-assert(type(_conf.terminal_guiScale) == "number", "Invalid value for _conf.terminal_guiScale")
-assert(type(_conf.cclite_showFPS) == "boolean", "Invalid value for _conf.cclite_showFPS")
-assert(type(_conf.lockfps) == "number", "Invalid value for _conf.lockfps")
-assert(type(_conf.compat_faultyClip) == "boolean", "Invalid value for _conf.compat_faultyClip")
-assert(type(_conf.useLuaSec) == "boolean", "Invalid value for _conf.useLuaSec")
-assert(type(_conf.useCRLF) == "boolean", "Invalid value for _conf.useCRLF")
+local messageCache = {}
+
+local defaultConf = '_conf = {\n	-- Enable the "http" API on Computers\n	enableAPI_http = true,\n	\n	-- Enable the "cclite" API on Computers\n	enableAPI_cclite = true,\n	\n	-- The height of Computer screens, in characters\n	terminal_height = 19,\n	\n	-- The width of Computer screens, in characters\n	terminal_width = 51,\n	\n	-- The GUI scale of Computer screens\n	terminal_guiScale = 2,\n	\n	-- Enable display of emulator FPS\n	cclite_showFPS = false,\n	\n	-- The FPS to lock CCLite to\n	lockfps = 20,\n	\n	-- Enable emulation of buggy Clipboard handling\n	compat_faultyClip = true,\n	\n	-- Enable https connections through luasec\n	useLuaSec = false,\n	\n	-- Enable usage of Carrage Return for fs.writeLine\n	useCRLF = false,\n	\n	-- Check for updates\n	cclite_updateChecker = true,\n}\n'
+
+-- Load configuration
+local defaultConfFunc = loadstring(defaultConf,"@config")
+defaultConfFunc() -- Load defaults.
+
+function complain(test,err,stat)
+	if test ~= true then
+		table.insert(messageCache,err)
+		stat.bad = true
+	end
+end
+
+function validateConfig(cfgData,setup)
+	local cfgCache = {}
+	for k,v in pairs(_conf) do
+		cfgCache[k] = v
+	end
+	local cfgFunc, err = loadstring(cfgData,"@config")
+	if cfgFunc == nil then
+		table.insert(messageCache,err)
+	else
+		stat, err = pcall(cfgFunc)
+		if stat == false then
+			table.insert(messageCache,err)
+			_conf = cfgCache
+		else
+			-- Verify configuration
+			local stat = {bad = false}
+			complain(type(_conf.enableAPI_http) == "boolean", "Invalid value for _conf.enableAPI_http", stat)
+			complain(type(_conf.enableAPI_cclite) == "boolean", "Invalid value for _conf.enableAPI_cclite", stat)
+			complain(type(_conf.terminal_height) == "number", "Invalid value for _conf.terminal_height", stat)
+			complain(type(_conf.terminal_width) == "number", "Invalid value for _conf.terminal_width", stat)
+			complain(type(_conf.terminal_guiScale) == "number", "Invalid value for _conf.terminal_guiScale", stat)
+			complain(type(_conf.cclite_showFPS) == "boolean", "Invalid value for _conf.cclite_showFPS", stat)
+			complain(type(_conf.lockfps) == "number", "Invalid value for _conf.lockfps", stat)
+			complain(type(_conf.compat_faultyClip) == "boolean", "Invalid value for _conf.compat_faultyClip", stat)
+			complain(type(_conf.useLuaSec) == "boolean", "Invalid value for _conf.useLuaSec", stat)
+			complain(type(_conf.useCRLF) == "boolean", "Invalid value for _conf.useCRLF", stat)
+			complain(type(_conf.cclite_updateChecker) == "boolean", "Invalid value for _conf.cclite_updateChecker", stat)
+			if stat.bad == true then
+				_conf = cfgCache
+			elseif type(setup) == "function" then
+				setup(cfgCache)
+			end
+		end
+	end
+end
+
+if love.filesystem.exists("/CCLite.cfg") then
+	local cfgData = love.filesystem.read("/CCLite.cfg")
+	validateConfig(cfgData)
+else
+	love.filesystem.write("/CCLite.cfg", defaultConf)
+end
+
+love.window.setTitle("ComputerCraft Emulator")
+love.window.setIcon(love.image.newImageData("res/icon.png"))
+love.window.setMode((_conf.terminal_width * 6 * _conf.terminal_guiScale) + (_conf.terminal_guiScale * 2), (_conf.terminal_height * 9 * _conf.terminal_guiScale) + (_conf.terminal_guiScale * 2), {vsync = false})
 
 if _conf.enableAPI_http then require("http.HttpRequest") end
 bit = require("bit")
@@ -38,6 +88,16 @@ if _conf.useLuaSec then
 			print(err)
 		end
 	end
+end
+
+-- Check for updates
+local _updateCheck
+if love.filesystem.exists("builddate.txt") and _conf.cclite_updateChecker then
+	_updateCheck = {}
+	_updateCheck.thread = love.thread.newThread("updateCheck.lua")
+	_updateCheck.channel = love.thread.newChannel()
+	_updateCheck.thread:start(_updateCheck.channel)
+	_updateCheck.working = true
 end
 
 -- Load virtual peripherals
@@ -220,8 +280,6 @@ function love.load()
 		next_time = love.timer.getTime()
 	end
 
-	love.filesystem.setIdentity("ccemu")
-
 	local fontPack = {131,161,163,166,170,171,172,174,186,187,188,189,191,196,197,198,199,201,209,214,215,216,220,224,225,226,228,229,230,231,232,233,234,235,236,237,238,239,241,242,243,244,246,248,249,250,251,252,255}
 	ChatAllowedCharacters = {}
 	for i = 32,126 do
@@ -233,10 +291,39 @@ function love.load()
 	ChatAllowedCharacters[96] = nil
 
 	if not love.filesystem.exists("data/") then
-		love.filesystem.createDirectory("data/") -- Make the user data folder
+		love.filesystem.createDirectory("data/")
 	end
 
+	if not love.filesystem.exists("data/0/") then
+		love.filesystem.createDirectory("data/0/") -- Make the user data folder
+	end
+	
+	local cache0
+	if love.filesystem.exists("data/0/") and not love.filesystem.isDirectory("data/0/") then
+		print("Backing up /0")
+		cache0 = love.filesystem.read("/data/0")
+		love.filesystem.remove("/data/0")
+		love.filesystem.createDirectory("data/0/")
+	end
+	
 	vfs.mount("/data","/")
+	-- Migrate to new folder.
+	local list = vfs.getDirectoryItems("/")
+	for k,v in pairs(list) do
+		if tonumber(v) == nil or tonumber(v) < 0 or tonumber(v) ~= math.floor(tonumber(v)) or v ~= tostring(tonumber(v)) then
+			print("Migrating /" .. v)
+			api._copytree("/" .. v, "/0/" .. v)
+			api._deltree("/" .. v)
+		end
+	end
+	vfs.unmount("/")
+	
+	if cache0 ~= nil then
+		print("Restoring /0")
+		love.filesystem.write("/data/0/0",cache0)
+	end
+	
+	vfs.mount("/data/0","/")
 	vfs.mount("/lua/rom","/rom")
 	
 	love.keyboard.setKeyRepeat(true)
@@ -403,6 +490,13 @@ function Emulator:update()
 	end
 	
 	-- Messages
+	for i = 1,#messageCache do
+		Screen:message(messageCache[i])
+	end
+	if #messageCache > 0 then
+		messageCache = {}
+	end
+	
 	for i = 1, 10 do
 		if now - Screen.messages[i][2] > 4 and Screen.messages[i][3] == true then
 			Screen.messages[i][3] = false
@@ -462,6 +556,28 @@ function love.run()
 
 		-- Update the FPS counter
 		love.timer.step()
+		
+		-- Check update checker
+		if _updateCheck ~= nil and _updateCheck.working == true then
+			if _updateCheck.thread:isRunning() == false and _updateCheck.channel:getCount() == 0 then
+				_updateCheck.working = false
+			elseif _updateCheck.channel:getCount() > 0 then
+				local data = _updateCheck.channel:pop()
+				if type(data) == "string" then
+					local tmpFunc = loadstring("return "..data)
+					if type(tmpFunc) == "function" then
+						data = tmpFunc()
+						if data[2] == 200 then
+							local buildData = love.filesystem.read("builddate.txt")
+							if buildData ~= data[5] then
+								Screen:message("Found CCLite Update")
+							end
+						end
+					end
+				end
+				_updateCheck.working = false
+			end
+		end
 
 		-- Call update and draw
 		Emulator:update()
